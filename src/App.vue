@@ -99,17 +99,17 @@ async function submitForm() {
   <main class="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 px-4 py-10">
     <div class="mx-auto max-w-2xl">
       <div class="mb-6 text-center">
-        <p class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Netlify + Google Sheets</p>
-        <h1 class="mt-2 text-4xl font-bold text-slate-900">Agency Request Form</h1>
+        <p class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Commission on Higher Education</p>
+        <h1 class="mt-2 text-4xl font-bold text-slate-900">Document Request Form</h1>
         <p class="mt-3 text-sm text-slate-600">
-          Clean Google-Form-style submission page built with Vue and Tailwind.
+          Follow up and track you documents.
         </p>
       </div>
 
       <section class="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
         <div class="mb-6 rounded-2xl bg-slate-900 px-5 py-4 text-white">
           <h2 class="text-lg font-semibold">Submit your details</h2>
-          <p class="mt-1 text-sm text-slate-300">Responses are stored directly in a Google Sheet.</p>
+          <p class="mt-1 text-sm text-slate-300">Data is collected and processed within a secure, access-controlled environment, in full compliance with the Data Privacy Act of 2012.</p>
         </div>
 
         <form class="space-y-5" @submit.prevent="submitForm">
