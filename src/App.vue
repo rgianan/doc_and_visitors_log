@@ -395,7 +395,7 @@ function logoutAdmin() {
       <section v-if="view === 'public'" class="mx-auto max-w-5xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
         <div class="mb-6 rounded-2xl bg-slate-900 px-5 py-4 text-white">
           <h2 class="text-lg font-semibold">Submit a document for intake screening</h2>
-          <p class="mt-1 text-sm text-slate-300">
+          <p class="mt-1 text-sm text-slate-300 justify-center">
             By submitting this form, you acknowledge that you have read and understood the privacy policy and consent to the 
             collection, processing, and storage of your personal data by the entity, in compliance with the Data Privacy Act of 2012 
             (Republic Act No. 10173). Your data will be used specifically for the stated purposes and protected according to these laws.<br><br>
