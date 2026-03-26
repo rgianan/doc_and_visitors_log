@@ -99,6 +99,7 @@ const view = ref('public')
 const submitting = ref(false)
 const loadingResponses = ref(false)
 const printingId = ref('')
+const savingDeficiencyId = ref('')
 const submitError = ref('')
 const submitSuccess = ref('')
 const submitOutcome = ref('')
@@ -320,6 +321,26 @@ async function printRecord(row) {
   }
 }
 
+async function saveDeficiency(row) {
+  if (!row?.intakeId || savingDeficiencyId.value) return
+  savingDeficiencyId.value = row.intakeId
+  resetAdminMessages()
+  try {
+    const data = await postJson({
+      action: 'updateDeficiency',
+      adminKey: admin.key.trim(),
+      intakeId: row.intakeId,
+      deficiencyReason: (row.deficiencyReason || '').trim(),
+    })
+    row.deficiencyReason = data.deficiencyReason || ''
+    adminSuccess.value = data.message || 'Deficiency updated.'
+  } catch (error) {
+    adminError.value = error?.message || 'Failed to update deficiency.'
+  } finally {
+    savingDeficiencyId.value = ''
+  }
+}
+
 function exportCsvClient() {
   const header = ['Timestamp', 'Intake ID', 'Status', 'Request Type', 'Requester', 'Institution Type', 'Declared', 'Missing', 'Deficiency']
   const rows = filteredResponses.value.map((row) => [
@@ -359,8 +380,8 @@ function logoutAdmin() {
     <div class="mx-auto max-w-7xl">
       <div class="mb-8 flex flex-col gap-4 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-xl shadow-slate-200/60 md:flex-row md:items-end md:justify-between">
         <div>
-          <p class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Document intake portal</p>
-          <h1 class="mt-2 text-4xl font-bold text-slate-900">Web App Document Intake</h1>
+          <p class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Commission on Higher Education</p>
+          <h1 class="mt-2 text-4xl font-bold text-slate-900">OSDS Document Intake Portal</h1>
           <p class="mt-3 max-w-3xl text-sm text-slate-600">
             Intake screening now runs on request-type-specific checklist logic, emails the client after submission, and lets admins generate a print-ready Google Doc from a template.
           </p>
@@ -592,11 +613,19 @@ function logoutAdmin() {
                     <td class="px-4 py-4 align-top text-slate-700">{{ row.institutionType }}</td>
                     <td class="px-4 py-4 align-top text-slate-700">{{ row.declaredDocLabels || '—' }}</td>
                     <td class="px-4 py-4 align-top text-slate-700">{{ row.missingDocLabels || '—' }}</td>
-                    <td class="px-4 py-4 align-top text-slate-700">{{ row.deficiencyReason || '—' }}</td>
+                    <td class="px-4 py-4 align-top text-slate-700">
+                      <textarea v-model="row.deficiencyReason" rows="3" placeholder="Leave blank if none" class="min-h-[84px] w-64 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-900"></textarea>
+                      <p class="mt-2 text-xs text-slate-500">Prints as <span class="font-semibold">None</span> when left blank.</p>
+                    </td>
                     <td class="px-4 py-4 align-top">
-                      <button class="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="printingId === row.intakeId" @click="printRecord(row)">
-                        {{ printingId === row.intakeId ? 'Generating…' : 'Print' }}
-                      </button>
+                      <div class="flex flex-col gap-2">
+                        <button class="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingDeficiencyId === row.intakeId" @click="saveDeficiency(row)">
+                          {{ savingDeficiencyId === row.intakeId ? 'Saving…' : 'Save deficiency' }}
+                        </button>
+                        <button class="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="printingId === row.intakeId" @click="printRecord(row)">
+                          {{ printingId === row.intakeId ? 'Generating…' : 'Print' }}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
