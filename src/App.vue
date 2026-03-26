@@ -396,7 +396,11 @@ function logoutAdmin() {
         <div class="mb-6 rounded-2xl bg-slate-900 px-5 py-4 text-white">
           <h2 class="text-lg font-semibold">Submit a document for intake screening</h2>
           <p class="mt-1 text-sm text-slate-300">
-            Required items drive acceptance. Optional items may be checked when applicable, but they do not trigger automatic rejection.
+            By submitting this form, you acknowledge that you have read and understood the privacy policy and consent to the 
+            collection, processing, and storage of your personal data by the entity, in compliance with the Data Privacy Act of 2012 
+            (Republic Act No. 10173). Your data will be used specifically for the stated purposes and protected according to these laws. 
+            Only the required documents affect whether a request is accepted or rejected. Optional documents can still be reviewed if needed, 
+            but they do not trigger automatic rejection.
           </p>
         </div>
 
@@ -550,7 +554,7 @@ function logoutAdmin() {
           <div class="mb-6 flex flex-col gap-4 rounded-[1.75rem] bg-slate-900 p-5 text-white lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h2 class="text-2xl font-bold">Admin Dashboard</h2>
-              <p class="mt-2 text-sm text-slate-300">Search intake logs, export the register, and generate a print-ready PDF from the Google Doc template.</p>
+              <p class="mt-2 text-sm text-slate-300">Search intake logs, export the register, and generate a print-ready PDF file.</p>
               <p v-if="lastLoadedAt" class="mt-2 text-xs text-slate-400">Last loaded: {{ lastLoadedAt }}</p>
             </div>
             <div class="flex flex-wrap gap-3">
