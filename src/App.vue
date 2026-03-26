@@ -383,7 +383,7 @@ function logoutAdmin() {
           <p class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Commission on Higher Education</p>
           <h1 class="mt-2 text-4xl font-bold text-slate-900">OSDS Document Intake Portal</h1>
           <p class="mt-3 max-w-3xl text-sm text-slate-600">
-            Intake screening now runs on request-type-specific checklist logic, emails the client after submission, and lets admins generate a print-ready Google Doc from a template.
+            The system reviews each request based on the checklist for its specific type and automatically sends a confirmation email to the client after submission.
           </p>
         </div>
         <div class="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
