@@ -1,21 +1,43 @@
-# Netlify + Google Sheets Form
+# Netlify + Google Sheets Document Intake Portal
 
-This project is a Vue 3 + Tailwind CSS web app that looks like a lightweight Google Form and saves responses into Google Sheets through a Google Apps Script web app.
+This version incorporates the document-intake workflow discussed earlier:
+- submissions are screened at intake
+- incomplete submissions are **not accepted for processing**
+- every screened submission is still **logged** with a status and deficiency reason
+- staff get an audit trail instead of informal verbal disputes
 
-## Fields
-- Name
-- Email
-- Agency
-- Sex
-- Purpose
+## What it does
 
-## Stack
-- Vue 3
-- Vite
-- Tailwind CSS
-- Netlify (hosting)
-- Google Apps Script (backend endpoint)
-- Google Sheets (database)
+### Public side
+- document intake form
+- required metadata fields
+- intake checklist
+- optional anti-bot honeypot
+- minimum-fill-time check
+- duplicate / burst submission blocking
+- file upload to Google Drive
+- immediate intake result message
+
+### Intake decision logic
+A submission is marked **ACCEPTED** only when all of these are present:
+- signed request checked
+- valid ID checked
+- supporting documents checked
+- file attachment uploaded
+
+Otherwise it is marked **REJECTED_INTAKE** and logged with a deficiency reason.
+
+### Admin side
+- admin key gate
+- dashboard cards
+- intake audit table
+- accepted vs rejected counts
+- deficiency reason visibility
+- CSV export
+
+## Project structure
+- `src/App.vue` — intake UI + admin dashboard
+- `google-apps-script/Code.gs` — Apps Script API, Sheets logging, Drive upload, intake screening
 
 ## Local setup
 ```bash
@@ -24,28 +46,59 @@ cp .env.example .env
 npm run dev
 ```
 
-Update `.env` with your deployed Apps Script Web App URL.
+Set these in `.env`:
+- `VITE_GAS_WEB_APP_URL`
+- `VITE_ADMIN_KEY`
 
-## Build
-```bash
-npm run build
-```
+## Google Apps Script setup
 
-## Deploy to Netlify
-1. Push this project to GitHub.
-2. In Netlify, import the Git repository.
-3. Build command: `npm run build`
-4. Publish directory: `dist`
-5. Add environment variable:
-   - `VITE_GAS_WEB_APP_URL` = your Google Apps Script Web App URL
-6. Deploy.
+1. Create a Google Sheet.
+2. Create a Google Drive folder for uploads.
+3. Open Apps Script and paste `google-apps-script/Code.gs`.
+4. In Apps Script, set **Script Properties**:
+   - `SPREADSHEET_ID` = your Google Sheet ID
+   - `RESPONSES_SHEET_NAME` = `Responses`
+   - `UPLOAD_FOLDER_ID` = your Google Drive folder ID
+   - `ADMIN_KEY` = your admin password/key
+   - `MAX_FILE_SIZE_BYTES` = `4194304` (optional)
+   - `ALLOWED_FILE_TYPES` = `application/pdf,image/jpeg,image/png,application/vnd.openxmlformats-officedocument.wordprocessingml.document` (optional)
+5. Run `setupProject_()` once from Apps Script.
+6. Deploy the script as a **Web app**.
+7. Put the web app URL into `VITE_GAS_WEB_APP_URL`.
 
-Netlify automatically detects common framework settings, and build/publish settings can also be defined in `netlify.toml`. citeturn379468search12turn379468search18
+## Sheet columns
+The backend creates these columns automatically:
+- Timestamp
+- Intake_ID
+- Status
+- Intake_Result
+- Deficiency_Reason
+- Document_Title
+- Document_Type
+- Name
+- Email
+- Agency
+- Sex
+- Purpose
+- Signed_Request
+- Valid_ID
+- Supporting_Docs
+- File_Name
+- File_URL
+- User_Agent
+- Review_Note
 
-## Google Sheets backend
-Apps Script web apps can expose `doGet(e)` and `doPost(e)` endpoints, and `ContentService.createTextOutput()` can be used to return JSON responses. citeturn379468search1turn379468search7turn379468search13
+## Security reality check
+This is stronger than the generic starter, but not bulletproof.
 
-Google Sheets can be updated programmatically from Apps Script through the Spreadsheet service. citeturn379468search4turn379468search10
+Still weak:
+- admin key is still a shared secret
+- frontend config can still be exposed to someone with app access
+- upload flow does not scan files for malware
 
-## Tailwind setup
-This project uses Tailwind with Vite via the official plugin approach. citeturn379468search2turn379468search11turn379468search14
+Next upgrades worth doing:
+- Turnstile or reCAPTCHA
+- real admin auth
+- audit actions for staff review notes
+- stricter server-side requirement rules per document type
+- file malware scanning and retention rules
