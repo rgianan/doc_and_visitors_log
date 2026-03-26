@@ -398,7 +398,7 @@ function logoutAdmin() {
           <p class="mt-1 text-sm text-slate-300">
             By submitting this form, you acknowledge that you have read and understood the privacy policy and consent to the 
             collection, processing, and storage of your personal data by the entity, in compliance with the Data Privacy Act of 2012 
-            (Republic Act No. 10173). Your data will be used specifically for the stated purposes and protected according to these laws. 
+            (Republic Act No. 10173). Your data will be used specifically for the stated purposes and protected according to these laws.<br><br>
             Only the required documents affect whether a request is accepted or rejected. Optional documents can still be reviewed if needed, 
             but they do not trigger automatic rejection.
           </p>
