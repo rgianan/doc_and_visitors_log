@@ -1,31 +1,23 @@
 /**
- * Netlify + Apps Script document intake backend
+ * Document intake backend.
  *
  * Script Properties:
  * - SPREADSHEET_ID
- * - RESPONSES_SHEET_NAME         optional, defaults to Responses
- * - UPLOAD_FOLDER_ID             optional, enables file uploads
- * - ADMIN_KEY                    required for admin dashboard / CSV export
- * - ALLOWED_FILE_TYPES           optional comma-separated MIME types
- * - MAX_FILE_SIZE_BYTES          optional, defaults to 4194304
+ * - RESPONSES_SHEET_NAME      optional, defaults to Responses
+ * - ADMIN_KEY                 required for admin dashboard / CSV export / printing
+ * - DOC_TEMPLATE_ID           required for print button (Google Doc template)
+ * - PRINT_OUTPUT_FOLDER_ID    optional, folder to store generated docs
  */
 
 function doGet(e) {
   e = e || { parameter: {} };
   var action = String((e.parameter && e.parameter.action) || '').trim();
-
   try {
     if (action === 'exportCsv') {
-      var adminKey = String((e.parameter && e.parameter.adminKey) || '').trim();
-      requireAdmin_(adminKey);
+      requireAdmin_(String((e.parameter && e.parameter.adminKey) || '').trim());
       return csvOutput_(buildCsv_());
     }
-
-    return jsonOutput_({
-      ok: true,
-      message: 'Document intake backend is running.',
-      uploadEnabled: !!getConfig_().uploadFolderId,
-    });
+    return jsonOutput_({ ok: true, message: 'Document intake backend is running.', mode: 'declared_checklist_with_email_and_print' });
   } catch (err) {
     return jsonOutput_({ ok: false, message: errorMessage_(err) });
   }
@@ -34,59 +26,75 @@ function doGet(e) {
 function doPost(e) {
   try {
     var payload = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    var action = String(payload.action || 'submit').trim();
-
+    var action = String(payload.action || '').trim();
     if (action === 'submit') return handleSubmit_(payload);
     if (action === 'adminLogin') return handleAdminLogin_(payload);
     if (action === 'listResponses') return handleListResponses_(payload);
-
-    return jsonOutput_({ ok: false, message: 'Unsupported action.' });
+    if (action === 'printRecord') return handlePrintRecord_(payload);
+    throw new Error('Unsupported action.');
   } catch (err) {
     return jsonOutput_({ ok: false, message: errorMessage_(err) });
   }
 }
 
 function handleSubmit_(payload) {
-  var config = getConfig_();
-  var row = sanitizeSubmission_(payload);
-  enforceSpamChecks_(row, payload);
+  var row = sanitizeSubmission_(payload || {});
+  enforceSpamChecks_(row, payload || {});
 
-  var upload = saveAttachmentIfPresent_(payload.attachment, config);
-  var intake = evaluateIntake_(row, upload);
+  var rule = getRequestTypeRule_(row.requestTypeCode);
   var intakeId = makeIntakeId_();
-  var sheet = getResponseSheet_(config);
+  var intake = evaluateIntake_(row, rule, row.declaredDocCodes);
+  var timestamp = new Date();
+  var sheet = getResponseSheet_(getConfig_());
+
+  var emailResult = sendClientEmailSafe_({
+    timestamp: timestamp,
+    intakeId: intakeId,
+    status: intake.status,
+    requestTypeLabel: rule.label,
+    requester: row.name,
+    institutionType: row.institutionType,
+    declaredDocLabels: intake.declaredDocLabels,
+    missingDocLabels: intake.missingDocLabels,
+    deficiencyReason: intake.deficiencyReason,
+    email: row.email
+  });
 
   sheet.appendRow([
-    new Date(),
+    timestamp,
     intakeId,
+    row.requestTypeCode,
+    rule.label,
     intake.status,
     intake.resultLabel,
     intake.deficiencyReason,
+    intake.missingDocCodes.join('|'),
+    intake.missingDocLabels.join('; '),
+    intake.declaredDocCodes.join('|'),
+    intake.declaredDocLabels.join('; '),
     row.documentTitle,
-    row.documentType,
     row.name,
     row.email,
     row.agency,
-    row.sex,
+    row.institutionType,
     row.purpose,
-    row.signedRequest ? 'YES' : 'NO',
-    row.validId ? 'YES' : 'NO',
-    row.supportingDocs ? 'YES' : 'NO',
-    upload.fileName,
-    upload.fileUrl,
+    row.othersDescription,
     row.userAgent,
+    emailResult.sent ? 'YES' : 'NO',
+    emailResult.error || '',
     ''
   ]);
 
-  markSubmissionFingerprint_(row, payload);
+  markSubmissionFingerprint_(row, payload || {});
 
   return jsonOutput_({
     ok: true,
     status: intake.status,
     intakeId: intakeId,
-    message: intake.status === 'ACCEPTED' ? 'Document passed intake screening and was accepted for processing. Reference: ' + intakeId + '.' : intake.publicMessage,
-    fileUrl: upload.fileUrl || '',
+    message: intake.publicMessage + (emailResult.sent ? ' A copy of the intake result was sent to your email.' : ' The intake result was logged, but the confirmation email could not be sent at this time.'),
     deficiencyReason: intake.deficiencyReason,
+    missingDocLabels: intake.missingDocLabels,
+    declaredDocLabels: intake.declaredDocLabels,
   });
 }
 
@@ -100,99 +108,265 @@ function handleListResponses_(payload) {
   var config = getConfig_();
   var sheet = getResponseSheet_(config);
   var values = sheet.getDataRange().getValues();
-  if (!values || values.length < 2) {
-    return jsonOutput_({ ok: true, rows: [], stats: emptyStats_() });
-  }
+  if (!values || values.length < 2) return jsonOutput_({ ok: true, rows: [], stats: emptyStats_() });
 
   var headers = values[0];
   var rows = [];
   var todayKey = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  var stats = { total: 0, accepted: 0, rejected: 0, withFiles: 0, today: 0, recentAgency: '—' };
+  var stats = emptyStats_();
 
   for (var i = 1; i < values.length; i++) {
     var obj = rowToObject_(headers, values[i]);
     var ts = obj.Timestamp ? new Date(obj.Timestamp) : null;
     var tsLabel = ts && !isNaN(ts) ? Utilities.formatDate(ts, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss') : '';
     var status = String(obj.Status || '');
-    var fileUrl = String(obj.File_URL || '');
 
     rows.push({
       rowNumber: i + 1,
       timestamp: tsLabel,
       intakeId: String(obj.Intake_ID || ''),
+      requestTypeCode: String(obj.Request_Type_Code || ''),
+      requestTypeLabel: String(obj.Request_Type_Label || ''),
       status: status,
       deficiencyReason: String(obj.Deficiency_Reason || ''),
       documentTitle: String(obj.Document_Title || ''),
-      documentType: String(obj.Document_Type || ''),
       name: String(obj.Name || ''),
       email: String(obj.Email || ''),
       agency: String(obj.Agency || ''),
-      sex: String(obj.Sex || ''),
+      institutionType: String(obj.Institution_Type || ''),
       purpose: String(obj.Purpose || ''),
-      signedRequest: String(obj.Signed_Request || ''),
-      validId: String(obj.Valid_ID || ''),
-      supportingDocs: String(obj.Supporting_Docs || ''),
-      fileName: String(obj.File_Name || ''),
-      fileUrl: fileUrl,
+      missingDocLabels: String(obj.Missing_Doc_Labels || ''),
+      declaredDocLabels: String(obj.Declared_Doc_Labels || ''),
     });
 
     stats.total++;
     if (status === 'ACCEPTED') stats.accepted++;
+    else if (status === 'FOR_MANUAL_REVIEW') stats.manualReview++;
     else stats.rejected++;
-    if (fileUrl) stats.withFiles++;
     if (tsLabel && tsLabel.slice(0, 10) === todayKey) stats.today++;
-    if (obj.Agency) stats.recentAgency = String(obj.Agency);
+    if (obj.Request_Type_Label) stats.recentRequestType = String(obj.Request_Type_Label);
   }
 
   rows.reverse();
   return jsonOutput_({ ok: true, rows: rows, stats: stats });
 }
 
+function handlePrintRecord_(payload) {
+  requireAdmin_(payload.adminKey);
+  var intakeId = cleanText_(payload.intakeId, 80);
+  if (!intakeId) throw new Error('Missing intake ID.');
+
+  var record = getRecordByIntakeId_(intakeId);
+  if (!record) throw new Error('Intake record not found.');
+
+  var out = generatePrintDoc_(record);
+  return jsonOutput_({
+    ok: true,
+    message: 'Print PDF generated.',
+    docUrl: out.docUrl,
+    docId: out.docId,
+    pdfFileId: out.pdfFileId,
+    pdfUrl: out.pdfUrl,
+    pdfViewUrl: out.pdfViewUrl
+  });
+}
+
 function sanitizeSubmission_(payload) {
   var row = {
+    requestTypeCode: cleanText_(payload.requestTypeCode, 60),
     documentTitle: cleanText_(payload.documentTitle, 180),
-    documentType: cleanText_(payload.documentType, 80),
     name: cleanText_(payload.name, 120),
     email: cleanText_(payload.email, 150).toLowerCase(),
     agency: cleanText_(payload.agency, 150),
-    sex: cleanText_(payload.sex, 40),
+    institutionType: cleanText_(payload.institutionType, 40),
     purpose: cleanText_(payload.purpose, 2000),
-    signedRequest: toBoolean_(payload.signedRequest),
-    validId: toBoolean_(payload.validId),
-    supportingDocs: toBoolean_(payload.supportingDocs),
+    othersDescription: cleanText_(payload.othersDescription, 2000),
     website: cleanText_(payload.website, 200),
     userAgent: cleanText_(payload.userAgent, 500),
-    formStartedAt: Number(payload.formStartedAt || 0)
+    formStartedAt: Number(payload.formStartedAt || 0),
+    declaredDocCodes: sanitizeDeclaredDocCodes_(payload.declaredDocCodes)
   };
 
-  if (!row.documentTitle || !row.documentType || !row.name || !row.email || !row.agency || !row.sex || !row.purpose) {
+  if (!row.requestTypeCode || !row.documentTitle || !row.name || !row.email || !row.agency || !row.institutionType || !row.purpose) {
     throw new Error('All core intake fields are required.');
   }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) throw new Error('Invalid email format.');
+  if (['Private', 'SUC', 'LUC'].indexOf(row.institutionType) === -1) throw new Error('Invalid institution type.');
+  if (row.requestTypeCode === 'OTHERS' && !row.othersDescription) throw new Error('Others description is required.');
+  if (!row.declaredDocCodes.length) throw new Error('At least one documentary checklist item must be checked.');
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) {
-    throw new Error('Invalid email format.');
-  }
-
-  if (['male', 'female', 'prefer not to say'].indexOf(String(row.sex).toLowerCase()) === -1) {
-    throw new Error('Invalid sex value.');
-  }
-
+  getRequestTypeRule_(row.requestTypeCode);
   return row;
 }
 
-function evaluateIntake_(row, upload) {
-  var deficiencies = [];
-  if (!row.signedRequest) deficiencies.push('signed request missing');
-  if (!row.validId) deficiencies.push('valid ID missing');
-  if (!row.supportingDocs) deficiencies.push('supporting documents incomplete');
-  if (!upload.fileUrl) deficiencies.push('attachment missing');
+function sanitizeDeclaredDocCodes_(value) {
+  var list = Array.isArray(value) ? value : [];
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < list.length; i++) {
+    var code = cleanText_(list[i], 80);
+    if (!code || seen[code]) continue;
+    seen[code] = true;
+    out.push(code);
+  }
+  return out;
+}
 
-  if (deficiencies.length) {
+function getRequestTypeRule_(requestTypeCode) {
+  var rules = requestTypeRules_();
+  var rule = rules[requestTypeCode];
+  if (!rule) throw new Error('Unknown request type.');
+  return rule;
+}
+
+function requestTypeRules_() {
+  return {
+    SIAP_PHASE_1: {
+      label: 'SIAP Phase 1',
+      docs: [
+        { code: 'LOI_NOTARIZED', label: 'Duly notarized letter of intent', required: true },
+        { code: 'GR_COPC', label: 'Government Recognition / COPC', required: true },
+        { code: 'ACCREDITATION_CERT', label: 'Valid Accreditation Certificate', required: true },
+        { code: 'CHED_CURRICULUM', label: 'Latest CHED-approved / acknowledged curriculum', required: true },
+        { code: 'MOA_HEI_FHE', label: 'MOA between HEI and FHE/O', required: true },
+        { code: 'FHE_AFFIDAVIT', label: 'Original affidavit of FHE/O registration', required: true },
+        { code: 'INITIAL_VISIT_PROOF', label: 'Proof of initial visit / inspection', required: true },
+        { code: 'INTERNSHIP_PLAN_CONTRACT', label: 'Internship Plan with sample Internship Contract', required: true },
+        { code: 'CONTINGENCY_PLAN', label: 'Contingency Plan', required: true },
+        { code: 'SUC_BOARD_RESOLUTION', label: 'Board Resolution / Excerpts of Meeting (for SUCs only)', required: true, onlyInstitutionTypes: ['SUC'] }
+      ],
+      manualReview: false
+    },
+    SIAP_PHASE_2: {
+      label: 'SIAP Phase 2',
+      docs: [
+        { code: 'CHEDRO_ENDORSEMENT', label: 'Endorsement Letter from CHEDRO', required: true },
+        { code: 'APPLICATION_LETTER_WITH_STUDENT_LIST', label: 'Notarized Application Letter with student list', required: true },
+        { code: 'ROUND_TRIP_ETICKET', label: 'Round-trip e-ticket', required: true },
+        { code: 'INSURANCE_POLICY', label: 'Comprehensive Insurance Policy', required: true },
+        { code: 'FHE_DIRECTORY', label: 'FHE/O Directory with place of stay details', required: true },
+        { code: 'ORIENTATION_PROOF', label: 'Proof of orientation / pre-departure briefing', required: true },
+        { code: 'PASSPORT_BIO_PAGE', label: 'Passport bio page with signature', required: true },
+        { code: 'VISA_COPY', label: 'Appropriate visa copy', required: true },
+        { code: 'MEDICAL_CERTIFICATE', label: 'Medical Certificate', required: true },
+        { code: 'TOR_WITH_SEAL', label: 'Transcript of Records with seal', required: true },
+        { code: 'REGISTRAR_CERTIFICATION', label: 'Registrar certification', required: true },
+        { code: 'AFFIDAVIT_OF_CONSENT', label: 'Notarized affidavit of consent', required: true },
+        { code: 'COVID19_VACC_CERT', label: 'COVID-19 Vaccination Certificate (if applicable)', required: false },
+        { code: 'DESTINATION_SUPPORTING_DOCS', label: 'Other supporting documents required by destination country, if any', required: false }
+      ],
+      manualReview: false
+    },
+    CEM: {
+      label: 'CEM',
+      docs: [
+        { code: 'APPLICATION_FORM', label: 'Duly accomplished application form', required: true },
+        { code: 'HEI_ENDORSEMENT', label: 'Letter / Indorsement from the HEI', required: true },
+        { code: 'PASSPORT_COPY', label: 'Photocopy of Passport', required: true },
+        { code: 'TOR_CERTIFIED_TRUE_COPY', label: 'Certified True Copy of Transcript of Records', required: true },
+        { code: 'DIPLOMA_OR_CERT_GRADUATION', label: 'Diploma or Certification of Graduation', required: true },
+        { code: 'NOTICE_OF_ACCEPTANCE', label: 'Notice of Acceptance', required: true },
+        { code: 'NMAT_RESULT', label: 'NMAT result', required: true }
+      ],
+      manualReview: false
+    },
+    CED: {
+      label: 'CED',
+      docs: [
+        { code: 'APPLICATION_FORM', label: 'Duly accomplished application form', required: true },
+        { code: 'HEI_ENDORSEMENT', label: 'Letter / Indorsement from the HEI', required: true },
+        { code: 'PASSPORT_COPY', label: 'Photocopy of Passport', required: true },
+        { code: 'TOR_CERTIFIED_TRUE_COPY', label: 'Certified True Copy of Transcript of Records', required: true },
+        { code: 'DIPLOMA_OR_CERT_GRADUATION', label: 'Diploma or Certification of Graduation', required: true },
+        { code: 'NOTICE_OF_ACCEPTANCE', label: 'Notice of Acceptance', required: true }
+      ],
+      manualReview: false
+    },
+    FS_TRANSFER: {
+      label: 'FS Transfer to Another HEI',
+      docs: [
+        { code: 'OFFICIAL_ENDORSEMENT', label: 'Official endorsement', required: true },
+        { code: 'NOA_ACCEPTING_HEI', label: 'NOA from the accepting HEI', required: true },
+        { code: 'TRANSFER_CREDENTIALS', label: 'Transfer Credentials', required: true },
+        { code: 'GOOD_MORAL_CERT', label: 'Certificate of Good Moral Character', required: true },
+        { code: 'TOR_CERTIFIED_TRUE_COPY', label: 'Transcript of Records', required: true },
+        { code: 'LETTER_OF_INTENT_TRANSFER', label: 'Letter of Intent and reason for transfer', required: true },
+        { code: 'PASSPORT_BIO_AND_VISA', label: 'Passport bio-page and visa page', required: true },
+        { code: 'ACR_COPY', label: 'ACR copy', required: true }
+      ],
+      manualReview: false
+    },
+    FS_SHIFTING: {
+      label: 'FS Shifting to Another Degree Program',
+      docs: [
+        { code: 'OFFICIAL_ENDORSEMENT', label: 'Official endorsement from the HEI', required: true },
+        { code: 'LETTER_OF_INTENT_SHIFTING', label: 'Letter of intent and reason for shifting', required: true },
+        { code: 'PASSPORT_BIO_AND_VISA', label: 'Passport bio-page and visa page', required: true },
+        { code: 'ACR_COPY', label: 'ACR copy', required: true }
+      ],
+      manualReview: false
+    },
+    OTHERS: {
+      label: 'Others',
+      docs: [
+        { code: 'OTHERS_REQUEST_LETTER', label: 'Request letter', required: true },
+        { code: 'OTHERS_SUPPORTING_DOCUMENTS', label: 'Supporting document', required: true }
+      ],
+      manualReview: true
+    }
+  };
+}
+
+function evaluateIntake_(row, rule, declaredDocCodes) {
+  var applicableDocs = applicableDocsForRow_(rule, row);
+  var validMap = {};
+  var i;
+  for (i = 0; i < applicableDocs.length; i++) validMap[applicableDocs[i].code] = applicableDocs[i];
+
+  var declaredCodes = [];
+  var declaredLabels = [];
+  var declaredMap = {};
+  for (i = 0; i < declaredDocCodes.length; i++) {
+    var code = declaredDocCodes[i];
+    if (!validMap[code] || declaredMap[code]) continue;
+    declaredMap[code] = true;
+    declaredCodes.push(code);
+    declaredLabels.push(validMap[code].label);
+  }
+  if (!declaredCodes.length) throw new Error('No valid checklist items were declared for the selected request type.');
+
+  var missingCodes = [];
+  var missingLabels = [];
+  for (i = 0; i < applicableDocs.length; i++) {
+    if (applicableDocs[i].required && !declaredMap[applicableDocs[i].code]) {
+      missingCodes.push(applicableDocs[i].code);
+      missingLabels.push(applicableDocs[i].label);
+    }
+  }
+
+  if (rule.manualReview) {
+    return {
+      status: 'FOR_MANUAL_REVIEW',
+      resultLabel: 'Logged for manual review',
+      deficiencyReason: missingLabels.length ? 'Manual review required. Missing required checklist items: ' + missingLabels.join('; ') + '.' : 'Manual review required for Others request.',
+      publicMessage: 'Submission logged for manual review. Reference: ' + intakeReference_(row, declaredCodes) + '.',
+      missingDocCodes: missingCodes,
+      missingDocLabels: missingLabels,
+      declaredDocCodes: declaredCodes,
+      declaredDocLabels: declaredLabels,
+    };
+  }
+
+  if (missingCodes.length) {
     return {
       status: 'REJECTED_INTAKE',
       resultLabel: 'Not accepted for processing',
-      deficiencyReason: capitalizeReasonList_(deficiencies),
-      publicMessage: 'Document was logged but not accepted for processing. Deficiency noted: ' + capitalizeReasonList_(deficiencies) + '.',
+      deficiencyReason: 'Unchecked required documents: ' + missingLabels.join('; ') + '.',
+      publicMessage: 'Submission was logged but not accepted for processing. Reference: ' + intakeReference_(row, declaredCodes) + '.',
+      missingDocCodes: missingCodes,
+      missingDocLabels: missingLabels,
+      declaredDocCodes: declaredCodes,
+      declaredDocLabels: declaredLabels,
     };
   }
 
@@ -200,98 +374,228 @@ function evaluateIntake_(row, upload) {
     status: 'ACCEPTED',
     resultLabel: 'Accepted for processing',
     deficiencyReason: '',
-    publicMessage: 'Document passed intake screening and was accepted for processing. Reference: ' + makeShortReference_() + '.',
+    publicMessage: 'Submission passed intake screening and was accepted for processing. Reference: ' + intakeReference_(row, declaredCodes) + '.',
+    missingDocCodes: [],
+    missingDocLabels: [],
+    declaredDocCodes: declaredCodes,
+    declaredDocLabels: declaredLabels,
   };
+}
+
+function applicableDocsForRow_(rule, row) {
+  var docs = [];
+  for (var i = 0; i < rule.docs.length; i++) {
+    var doc = rule.docs[i];
+    if (doc.onlyInstitutionTypes && doc.onlyInstitutionTypes.indexOf(row.institutionType) === -1) continue;
+    docs.push({ code: doc.code, label: doc.label, required: !!doc.required });
+  }
+  return docs;
 }
 
 function enforceSpamChecks_(row, payload) {
   if (row.website) throw new Error('Spam submission blocked.');
-
   var filledMs = Date.now() - Number(row.formStartedAt || 0);
-  if (!row.formStartedAt || filledMs < 3000) {
-    throw new Error('Submission blocked by anti-spam timer.');
-  }
+  if (!row.formStartedAt || filledMs < 3000) throw new Error('Submission blocked by anti-spam timer.');
 
   var cache = CacheService.getScriptCache();
   var fingerprint = submissionFingerprint_(row, payload);
-  if (cache.get(fingerprint)) {
-    throw new Error('Duplicate or too-frequent submission blocked. Please wait before trying again.');
-  }
+  if (cache.get(fingerprint)) throw new Error('Duplicate or too-frequent submission blocked. Please wait before trying again.');
 }
 
 function markSubmissionFingerprint_(row, payload) {
-  var cache = CacheService.getScriptCache();
-  cache.put(submissionFingerprint_(row, payload), '1', 60 * 5);
+  CacheService.getScriptCache().put(submissionFingerprint_(row, payload), '1', 60 * 5);
 }
 
 function submissionFingerprint_(row, payload) {
-  var base = [
-    row.documentTitle,
-    row.email,
-    row.agency,
-    row.userAgent,
-    payload && payload.attachment ? payload.attachment.fileName : ''
-  ].join('|');
+  var docs = row.declaredDocCodes.join('|');
+  var base = [row.requestTypeCode, row.documentTitle, row.email, row.agency, row.institutionType, row.userAgent, docs].join('|');
   var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, base);
   return 'submit:' + Utilities.base64EncodeWebSafe(digest);
-}
-
-function saveAttachmentIfPresent_(attachment, config) {
-  if (!attachment) return { fileName: '', fileUrl: '' };
-  if (!config.uploadFolderId) throw new Error('Upload folder is not configured on the backend.');
-
-  var fileName = cleanText_(attachment.fileName, 200);
-  var mimeType = cleanText_(attachment.mimeType, 120);
-  var dataUrl = String(attachment.dataUrl || '');
-  var size = Number(attachment.size || 0);
-
-  if (!fileName || !mimeType || !dataUrl) throw new Error('Invalid attachment payload.');
-  if (size <= 0 || size > config.maxFileSizeBytes) throw new Error('Attachment exceeds the allowed file size.');
-  if (config.allowedFileTypes.indexOf(mimeType) === -1) throw new Error('Attachment type is not allowed.');
-
-  var base64 = dataUrl.split(',')[1] || '';
-  if (!base64) throw new Error('Attachment data is invalid.');
-
-  var bytes = Utilities.base64Decode(base64);
-  var blob = Utilities.newBlob(bytes, mimeType, fileName);
-  var folder = DriveApp.getFolderById(config.uploadFolderId);
-  var saved = folder.createFile(blob);
-
-  return {
-    fileName: saved.getName(),
-    fileUrl: saved.getUrl()
-  };
 }
 
 function getResponseSheet_(config) {
   var ss = SpreadsheetApp.openById(config.spreadsheetId);
   var sheet = ss.getSheetByName(config.sheetName);
+  var headers = [
+    'Timestamp',
+    'Intake_ID',
+    'Request_Type_Code',
+    'Request_Type_Label',
+    'Status',
+    'Intake_Result',
+    'Deficiency_Reason',
+    'Missing_Doc_Codes',
+    'Missing_Doc_Labels',
+    'Declared_Doc_Codes',
+    'Declared_Doc_Labels',
+    'Document_Title',
+    'Name',
+    'Email',
+    'Agency',
+    'Institution_Type',
+    'Purpose',
+    'Others_Description',
+    'User_Agent',
+    'Email_Sent',
+    'Email_Error',
+    'Review_Note'
+  ];
+
   if (!sheet) {
     sheet = ss.insertSheet(config.sheetName);
-    sheet.appendRow([
-      'Timestamp',
-      'Intake_ID',
-      'Status',
-      'Intake_Result',
-      'Deficiency_Reason',
-      'Document_Title',
-      'Document_Type',
-      'Name',
-      'Email',
-      'Agency',
-      'Sex',
-      'Purpose',
-      'Signed_Request',
-      'Valid_ID',
-      'Supporting_Docs',
-      'File_Name',
-      'File_URL',
-      'User_Agent',
-      'Review_Note'
-    ]);
+    sheet.appendRow(headers);
     sheet.setFrozenRows(1);
+    return sheet;
   }
+
+  ensureHeaders_(sheet, headers);
   return sheet;
+}
+
+function ensureHeaders_(sheet, headers) {
+  var current = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length)).getValues()[0];
+  var isDifferent = false;
+  for (var i = 0; i < headers.length; i++) {
+    if (String(current[i] || '') !== headers[i]) {
+      isDifferent = true;
+      break;
+    }
+  }
+  if (isDifferent) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.setFrozenRows(1);
+}
+
+function sendClientEmailSafe_(data) {
+  try {
+    sendClientEmail_(data);
+    return { sent: true, error: '' };
+  } catch (err) {
+    return { sent: false, error: errorMessage_(err) };
+  }
+}
+
+function sendClientEmail_(data) {
+  var subject = '[Document Intake] ' + data.status + ' - ' + data.intakeId;
+  var timestampLabel = Utilities.formatDate(new Date(data.timestamp), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  var declared = (data.declaredDocLabels || []).join('; ') || 'None declared';
+  var missing = (data.missingDocLabels || []).join('; ') || 'None';
+  var deficiency = data.deficiencyReason || 'None';
+
+  var htmlBody = '' +
+    '<p>Good day ' + escapeHtml_(data.requester) + ',</p>' +
+    '<p>Your document intake submission has been logged. Please review the intake result below.</p>' +
+    '<table style="border-collapse:collapse;width:100%;max-width:760px;font-family:Arial,sans-serif;font-size:14px;">' +
+    rowHtml_('Timestamp', timestampLabel) +
+    rowHtml_('Intake', data.intakeId) +
+    rowHtml_('Status', '<strong style="color:' + statusColor_(data.status) + ';">' + escapeHtml_(data.status) + '</strong>') +
+    rowHtml_('Request Type', escapeHtml_(data.requestTypeLabel)) +
+    rowHtml_('Requester', escapeHtml_(data.requester)) +
+    rowHtml_('Institution Type', escapeHtml_(data.institutionType)) +
+    rowHtml_('Declared', escapeHtml_(declared)) +
+    rowHtml_('Missing', '<strong style="color:#b91c1c;">' + escapeHtml_(missing) + '</strong>') +
+    rowHtml_('Deficiency', '<strong style="color:#b91c1c;">' + escapeHtml_(deficiency) + '</strong>') +
+    '</table>' +
+    '<p style="margin-top:16px;">Status is the controlling result. If your submission is <strong>REJECTED_INTAKE</strong>, review the <strong>Missing</strong> and <strong>Deficiency</strong> fields carefully before resubmitting.</p>' +
+    '<p>Thank you.</p>';
+
+  var plainBody = [
+    'Good day ' + data.requester + ',',
+    '',
+    'Your document intake submission has been logged. Please review the intake result below.',
+    '',
+    'Timestamp: ' + timestampLabel,
+    'Intake: ' + data.intakeId,
+    'Status: ' + data.status,
+    'Request Type: ' + data.requestTypeLabel,
+    'Requester: ' + data.requester,
+    'Institution Type: ' + data.institutionType,
+    'Declared: ' + declared,
+    'Missing: ' + missing,
+    'Deficiency: ' + deficiency,
+    '',
+    'Status is the controlling result. If your submission is REJECTED_INTAKE, review the Missing and Deficiency fields before resubmitting.',
+    '',
+    'Thank you.'
+  ].join('\n');
+
+  MailApp.sendEmail({
+    to: data.email,
+    subject: subject,
+    htmlBody: htmlBody,
+    body: plainBody,
+    name: 'Document Intake Portal'
+  });
+}
+
+function rowHtml_(label, valueHtml) {
+  return '<tr>' +
+    '<td style="border:1px solid #e2e8f0;padding:8px 10px;background:#f8fafc;font-weight:600;width:180px;">' + escapeHtml_(label) + '</td>' +
+    '<td style="border:1px solid #e2e8f0;padding:8px 10px;">' + valueHtml + '</td>' +
+    '</tr>';
+}
+
+function statusColor_(status) {
+  if (status === 'ACCEPTED') return '#047857';
+  if (status === 'FOR_MANUAL_REVIEW') return '#b45309';
+  return '#b91c1c';
+}
+
+function getRecordByIntakeId_(intakeId) {
+  var values = getResponseSheet_(getConfig_()).getDataRange().getValues();
+  if (!values || values.length < 2) return null;
+  var headers = values[0];
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][1] || '') === intakeId) return rowToObject_(headers, values[i]);
+  }
+  return null;
+}
+
+function generatePrintDoc_(record) {
+  var config = getConfig_();
+  if (!config.docTemplateId) throw new Error('DOC_TEMPLATE_ID is not configured in Script Properties.');
+  var templateFile = DriveApp.getFileById(config.docTemplateId);
+  var targetFolder = config.printOutputFolderId ? DriveApp.getFolderById(config.printOutputFolderId) : templateFile.getParents().hasNext() ? templateFile.getParents().next() : DriveApp.getRootFolder();
+  var timeZone = Session.getScriptTimeZone() || 'Asia/Manila';
+  var stamp = Utilities.formatDate(new Date(), timeZone, 'yyyyMMdd_HHmmss');
+  var name = 'Intake Print - ' + String(record.Intake_ID || 'Record') + ' - ' + stamp;
+  var copy = templateFile.makeCopy(name, targetFolder);
+  var doc = DocumentApp.openById(copy.getId());
+  var body = doc.getBody();
+
+  replaceToken_(body, 'Timestamp', formatTimestampValue_(record.Timestamp));
+  replaceToken_(body, 'Intake', String(record.Intake_ID || ''));
+  replaceToken_(body, 'Status', String(record.Status || ''));
+  replaceToken_(body, 'Intake Result', String(record.Intake_Result || ''));
+  replaceToken_(body, 'Request Type', String(record.Request_Type_Label || ''));
+  replaceToken_(body, 'Requester', String(record.Name || ''));
+  replaceToken_(body, 'Institution Type', String(record.Institution_Type || ''));
+  replaceToken_(body, 'Declared', String(record.Declared_Doc_Labels || ''));
+  replaceToken_(body, 'Missing', String(record.Missing_Doc_Labels || ''));
+  replaceToken_(body, 'Deficiency', String(record.Deficiency_Reason || ''));
+
+  doc.saveAndClose();
+
+  var refreshedDocFile = DriveApp.getFileById(copy.getId());
+  var pdfBlob = refreshedDocFile.getAs(MimeType.PDF).setName(name + '.pdf');
+  var pdfFile = targetFolder.createFile(pdfBlob);
+
+  return {
+    docId: copy.getId(),
+    docUrl: doc.getUrl(),
+    pdfFileId: pdfFile.getId(),
+    pdfUrl: 'https://drive.google.com/file/d/' + pdfFile.getId() + '/preview',
+    pdfViewUrl: 'https://drive.google.com/file/d/' + pdfFile.getId() + '/view'
+  };
+}
+
+function replaceToken_(body, token, value) {
+  var safeValue = String(value == null ? '' : value);
+  var patterns = ['{{' + token + '}}', '<<' + token + '>>', '[' + token + ']'];
+  for (var i = 0; i < patterns.length; i++) body.replaceText(escapeRegex_(patterns[i]), safeValue);
+}
+
+function escapeRegex_(s) {
+  return String(s).replace(/([\\^$.*+?()[\]{}|])/g, '\\$1');
 }
 
 function requireAdmin_(adminKey) {
@@ -305,34 +609,26 @@ function getConfig_() {
   return {
     spreadsheetId: props.getProperty('SPREADSHEET_ID') || 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE',
     sheetName: props.getProperty('RESPONSES_SHEET_NAME') || 'Responses',
-    uploadFolderId: props.getProperty('UPLOAD_FOLDER_ID') || '',
     adminKey: props.getProperty('ADMIN_KEY') || '',
-    maxFileSizeBytes: Number(props.getProperty('MAX_FILE_SIZE_BYTES') || 4194304),
-    allowedFileTypes: String(props.getProperty('ALLOWED_FILE_TYPES') || 'application/pdf,image/jpeg,image/png,application/vnd.openxmlformats-officedocument.wordprocessingml.document').split(',')
+    docTemplateId: props.getProperty('DOC_TEMPLATE_ID') || '',
+    printOutputFolderId: props.getProperty('PRINT_OUTPUT_FOLDER_ID') || ''
   };
 }
 
 function setupProject_() {
   var config = getConfig_();
-  if (!config.spreadsheetId || config.spreadsheetId === 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE') {
-    throw new Error('Set SPREADSHEET_ID in Script Properties first.');
-  }
+  if (!config.spreadsheetId || config.spreadsheetId === 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE') throw new Error('Set SPREADSHEET_ID in Script Properties first.');
   getResponseSheet_(config);
   return 'Setup complete.';
 }
 
 function buildCsv_() {
-  var config = getConfig_();
-  var sheet = getResponseSheet_(config);
-  var values = sheet.getDataRange().getDisplayValues();
-  return values.map(function(row) {
-    return row.map(csvEscape_).join(',');
-  }).join('\r\n');
+  var values = getResponseSheet_(getConfig_()).getDataRange().getDisplayValues();
+  return values.map(function(row) { return row.map(csvEscape_).join(','); }).join('\r\n');
 }
 
 function csvEscape_(value) {
-  var s = String(value == null ? '' : value);
-  return '"' + s.replace(/"/g, '""') + '"';
+  return '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"';
 }
 
 function rowToObject_(headers, row) {
@@ -342,32 +638,36 @@ function rowToObject_(headers, row) {
 }
 
 function emptyStats_() {
-  return { total: 0, accepted: 0, rejected: 0, withFiles: 0, today: 0, recentAgency: '—' };
+  return { total: 0, accepted: 0, rejected: 0, manualReview: 0, today: 0, recentRequestType: '—' };
 }
 
 function makeIntakeId_() {
   var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss');
-  var suffix = Math.floor(Math.random() * 9000) + 1000;
-  return 'INT-' + stamp + '-' + suffix;
+  return 'INT-' + stamp + '-' + (Math.floor(Math.random() * 9000) + 1000);
 }
 
-function makeShortReference_() {
-  return Utilities.getUuid().slice(0, 8).toUpperCase();
-}
-
-function capitalizeReasonList_(items) {
-  if (!items || !items.length) return '';
-  var joined = items.join('; ');
-  return joined.charAt(0).toUpperCase() + joined.slice(1);
-}
-
-function toBoolean_(value) {
-  return value === true || String(value).toLowerCase() === 'true' || String(value).toLowerCase() === 'yes';
+function intakeReference_(row, declaredCodes) {
+  return [row.requestTypeCode, row.institutionType, declaredCodes.length].join('-');
 }
 
 function cleanText_(value, maxLen) {
   var out = String(value == null ? '' : value).replace(/[\u0000-\u001F\u007F]/g, ' ').trim();
   return maxLen ? out.slice(0, maxLen) : out;
+}
+
+function formatTimestampValue_(value) {
+  if (!value) return '';
+  var d = value instanceof Date ? value : new Date(value);
+  return isNaN(d) ? String(value) : Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+}
+
+function escapeHtml_(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function errorMessage_(err) {
