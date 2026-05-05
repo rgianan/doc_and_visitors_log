@@ -4,6 +4,7 @@
  * Script Properties:
  * - SPREADSHEET_ID
  * - RESPONSES_SHEET_NAME      optional, defaults to Responses
+ * - AUDIT_SHEET_NAME          optional, defaults to Audit
  * - ADMIN_KEY                 required for admin dashboard / CSV export / printing
  * - DOC_TEMPLATE_ID           required for print button (Google Doc template)
  * - PRINT_OUTPUT_FOLDER_ID    optional, folder to store generated docs
@@ -11,12 +12,19 @@
  * - TURNSTILE_SECRET_KEY      optional; if set, the client's turnstileToken is verified against Cloudflare
  */
 
+var ADMIN_FAILED_CACHE_KEY = 'admin:failed_attempts';
+var ADMIN_LOCKOUT_CACHE_KEY = 'admin:lockout';
+var ADMIN_MAX_ATTEMPTS = 5;
+var ADMIN_LOCKOUT_SECONDS = 15 * 60;
+var ADMIN_FAIL_WINDOW_SECONDS = 15 * 60;
+
 function doGet(e) {
   e = e || { parameter: {} };
   var action = String((e.parameter && e.parameter.action) || '').trim();
   try {
     if (action === 'exportCsv') {
       requireAdmin_(String((e.parameter && e.parameter.adminKey) || '').trim());
+      auditLog_('export_csv', 'ok', '');
       return csvOutput_(buildCsv_());
     }
     return jsonOutput_({ ok: true, message: 'Document intake backend is running.', mode: 'declared_checklist_with_email_and_print' });
@@ -106,6 +114,7 @@ function handleSubmit_(payload) {
 
 function handleAdminLogin_(payload) {
   requireAdmin_(payload.adminKey);
+  auditLog_('admin_login_success', 'ok', '');
   return jsonOutput_({ ok: true, message: 'Admin access granted.' });
 }
 
@@ -166,6 +175,7 @@ function handlePrintRecord_(payload) {
   if (!record) throw new Error('Intake record not found.');
 
   var out = generatePrintDoc_(record);
+  auditLog_('print_record', 'ok', intakeId);
   return jsonOutput_({
     ok: true,
     message: 'Print PDF generated.',
@@ -621,9 +631,47 @@ function escapeRegex_(s) {
 }
 
 function requireAdmin_(adminKey) {
+  var cache = CacheService.getScriptCache();
+  if (cache.get(ADMIN_LOCKOUT_CACHE_KEY)) {
+    throw new Error('Admin access is temporarily locked due to repeated failed logins. Try again in ~15 minutes.');
+  }
   var expected = getConfig_().adminKey;
   if (!expected) throw new Error('ADMIN_KEY is not configured in Script Properties.');
-  if (String(adminKey || '').trim() !== expected) throw new Error('Unauthorized admin request.');
+  if (String(adminKey || '').trim() !== expected) {
+    var attempts = Number(cache.get(ADMIN_FAILED_CACHE_KEY) || 0) + 1;
+    if (attempts >= ADMIN_MAX_ATTEMPTS) {
+      cache.put(ADMIN_LOCKOUT_CACHE_KEY, '1', ADMIN_LOCKOUT_SECONDS);
+      cache.remove(ADMIN_FAILED_CACHE_KEY);
+      auditLog_('admin_lockout_triggered', 'failure', 'attempts=' + attempts);
+      throw new Error('Too many failed admin login attempts. Locked for 15 minutes.');
+    }
+    cache.put(ADMIN_FAILED_CACHE_KEY, String(attempts), ADMIN_FAIL_WINDOW_SECONDS);
+    auditLog_('admin_login_failed', 'failure', 'attempt ' + attempts + '/' + ADMIN_MAX_ATTEMPTS);
+    throw new Error('Unauthorized admin request.');
+  }
+  cache.remove(ADMIN_FAILED_CACHE_KEY);
+}
+
+function getAuditSheet_() {
+  var props = PropertiesService.getScriptProperties();
+  var name = props.getProperty('AUDIT_SHEET_NAME') || 'Audit';
+  var ss = SpreadsheetApp.openById(getConfig_().spreadsheetId);
+  var sheet = ss.getSheetByName(name);
+  var headers = ['Timestamp', 'Action', 'Status', 'Detail'];
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(headers);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function auditLog_(action, status, detail) {
+  try {
+    getAuditSheet_().appendRow([new Date(), String(action || ''), String(status || ''), String(detail == null ? '' : detail).slice(0, 1000)]);
+  } catch (err) {
+    // Best-effort: never let audit failure break the request.
+  }
 }
 
 function getConfig_() {
@@ -688,7 +736,9 @@ function handleUpdateDeficiency_(payload) {
 
   for (var i = 1; i < values.length; i++) {
     if (String(values[i][intakeCol] || '') === intakeId) {
+      var oldReason = String(values[i][reasonCol] || '');
       sheet.getRange(i + 1, reasonCol + 1).setValue(reason);
+      auditLog_('update_deficiency', 'ok', intakeId + ' | old="' + oldReason + '" -> new="' + reason + '"');
       return jsonOutput_({ ok: true, message: 'Deficiency updated.', deficiencyReason: reason });
     }
   }
