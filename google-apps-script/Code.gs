@@ -7,6 +7,8 @@
  * - ADMIN_KEY                 required for admin dashboard / CSV export / printing
  * - DOC_TEMPLATE_ID           required for print button (Google Doc template)
  * - PRINT_OUTPUT_FOLDER_ID    optional, folder to store generated docs
+ * - SUBMIT_SHARED_TOKEN       optional; if set, must match the value the client sends in submitToken
+ * - TURNSTILE_SECRET_KEY      optional; if set, the client's turnstileToken is verified against Cloudflare
  */
 
 function doGet(e) {
@@ -31,6 +33,7 @@ function doPost(e) {
     if (action === 'adminLogin') return handleAdminLogin_(payload);
     if (action === 'listResponses') return handleListResponses_(payload);
     if (action === 'printRecord') return handlePrintRecord_(payload);
+    if (action === 'updateDeficiency') return handleUpdateDeficiency_(payload);
     throw new Error('Unsupported action.');
   } catch (err) {
     return jsonOutput_({ ok: false, message: errorMessage_(err) });
@@ -38,8 +41,11 @@ function doPost(e) {
 }
 
 function handleSubmit_(payload) {
-  var row = sanitizeSubmission_(payload || {});
-  enforceSpamChecks_(row, payload || {});
+  payload = payload || {};
+  verifySubmitToken_(payload.submitToken);
+  verifyTurnstile_(payload.turnstileToken);
+  var row = sanitizeSubmission_(payload);
+  enforceSpamChecks_(row, payload);
 
   var rule = getRequestTypeRule_(row.requestTypeCode);
   var intakeId = makeIntakeId_();
@@ -611,8 +617,63 @@ function getConfig_() {
     sheetName: props.getProperty('RESPONSES_SHEET_NAME') || 'Responses',
     adminKey: props.getProperty('ADMIN_KEY') || '',
     docTemplateId: props.getProperty('DOC_TEMPLATE_ID') || '',
-    printOutputFolderId: props.getProperty('PRINT_OUTPUT_FOLDER_ID') || ''
+    printOutputFolderId: props.getProperty('PRINT_OUTPUT_FOLDER_ID') || '',
+    submitSharedToken: props.getProperty('SUBMIT_SHARED_TOKEN') || '',
+    turnstileSecretKey: props.getProperty('TURNSTILE_SECRET_KEY') || ''
   };
+}
+
+function verifySubmitToken_(token) {
+  var expected = getConfig_().submitSharedToken;
+  if (!expected) return;
+  if (String(token || '').trim() !== expected) throw new Error('Submission token invalid.');
+}
+
+function verifyTurnstile_(token) {
+  var secret = getConfig_().turnstileSecretKey;
+  if (!secret) return;
+  if (!token) throw new Error('CAPTCHA verification required.');
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'post',
+      payload: { secret: secret, response: String(token) },
+      muteHttpExceptions: true
+    });
+  } catch (err) {
+    throw new Error('CAPTCHA verification could not be completed.');
+  }
+  var body = {};
+  try { body = JSON.parse(resp.getContentText() || '{}'); } catch (err) {}
+  if (!body.success) throw new Error('CAPTCHA verification failed.');
+}
+
+function handleUpdateDeficiency_(payload) {
+  requireAdmin_(payload.adminKey);
+  var intakeId = cleanText_(payload.intakeId, 80);
+  if (!intakeId) throw new Error('Missing intake ID.');
+  var reason = cleanText_(payload.deficiencyReason, 2000);
+
+  var sheet = getResponseSheet_(getConfig_());
+  var values = sheet.getDataRange().getValues();
+  if (!values || values.length < 2) throw new Error('Intake record not found.');
+
+  var headers = values[0];
+  var intakeCol = -1;
+  var reasonCol = -1;
+  for (var c = 0; c < headers.length; c++) {
+    if (headers[c] === 'Intake_ID') intakeCol = c;
+    if (headers[c] === 'Deficiency_Reason') reasonCol = c;
+  }
+  if (intakeCol === -1 || reasonCol === -1) throw new Error('Sheet is missing required columns.');
+
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][intakeCol] || '') === intakeId) {
+      sheet.getRange(i + 1, reasonCol + 1).setValue(reason);
+      return jsonOutput_({ ok: true, message: 'Deficiency updated.', deficiencyReason: reason });
+    }
+  }
+  throw new Error('Intake record not found.');
 }
 
 function setupProject_() {

@@ -1,2 +1,11 @@
-VITE_GAS_WEB_APP_URL=https://script.google.com/macros/s/AKfycbxrjZM4NyZcZly-f3WXRzvreYVZfZsPyGAARi0yrMW-1OzMlI9VTOcTgts1hSUscANS3Q/exec
-VITE_ADMIN_KEY=replace-with-admin-key-for-local-testing
+# Public — bundled into the client JS. Safe to be visible.
+VITE_GAS_WEB_APP_URL=https://script.google.com/macros/s/PASTE_DEPLOYMENT_ID_HERE/exec
+
+# Public — the matching SUBMIT_SHARED_TOKEN must be set as a Script Property on the GAS side.
+# This is a low-friction filter, not a real secret (it ships in the bundle).
+VITE_SUBMIT_SHARED_TOKEN=replace-with-shared-submit-token
+
+# Public — Cloudflare Turnstile site key. The matching TURNSTILE_SECRET_KEY must be set as a Script Property on the GAS side.
+VITE_TURNSTILE_SITE_KEY=
+
+# DO NOT set VITE_ADMIN_KEY. The admin key lives only in Apps Script Properties (ADMIN_KEY).

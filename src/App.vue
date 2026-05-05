@@ -1,11 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 
-console.log('GAS URL:', import.meta.env.VITE_GAS_WEB_APP_URL);
-console.log('SUBMIT TOKEN:', import.meta.env.VITE_SUBMIT_SHARED_TOKEN);
-
 const API_URL = import.meta.env.VITE_GAS_WEB_APP_URL || ''
-const DEFAULT_ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY || ''
 const SUBMIT_TOKEN = import.meta.env.VITE_SUBMIT_SHARED_TOKEN || ''
 const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
 
@@ -118,7 +114,7 @@ const turnstileWidgetId = ref(null)
 const turnstileHost = ref(null)
 let startedAt = Date.now()
 
-const admin = reactive({ key: DEFAULT_ADMIN_KEY, search: '' })
+const admin = reactive({ key: '', search: '' })
 const stats = ref({ total: 0, accepted: 0, rejected: 0, manualReview: 0, today: 0, recentRequestType: '—' })
 
 const form = reactive({
@@ -458,24 +454,24 @@ watch(turnstileHost, () => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 px-4 py-10">
-    <div class="mx-auto max-w-7xl">
-      <div class="mb-8 flex flex-col gap-4 rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-xl shadow-slate-200/60 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p class="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Commission on Higher Education</p>
-          <h1 class="mt-2 text-4xl font-bold text-slate-900">OSDS Document Screening Portal</h1>
+  <main class="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 px-3 py-6 sm:px-6 sm:py-10">
+    <div class="mx-auto w-full max-w-[1400px]">
+      <div class="mb-6 flex flex-col gap-4 rounded-[1.5rem] border border-slate-200 bg-white/90 p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:mb-8 md:flex-row md:items-end md:justify-between">
+        <div class="min-w-0">
+          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 sm:text-sm">Commission on Higher Education</p>
+          <h1 class="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl md:text-4xl">OSDS Document Screening Portal</h1>
           <p class="mt-3 max-w-3xl text-sm text-slate-600">
             This web app reviews each request based on the checklist for its specific type and automatically sends a confirmation email to the client after submission.
           </p>
         </div>
-        <div class="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
-          <button class="rounded-2xl px-4 py-2 text-sm font-semibold transition" :class="view === 'public' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'" @click="view = 'public'">Screening Form</button>
-          <button class="rounded-2xl px-4 py-2 text-sm font-semibold transition" :class="view === 'admin' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'" @click="view = 'admin'">Admin Dashboard</button>
+        <div class="inline-flex w-full overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-1 md:w-auto">
+          <button class="flex-1 whitespace-nowrap rounded-2xl px-3 py-2 text-xs font-semibold transition sm:px-4 sm:text-sm md:flex-none" :class="view === 'public' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'" @click="view = 'public'">Screening Form</button>
+          <button class="flex-1 whitespace-nowrap rounded-2xl px-3 py-2 text-xs font-semibold transition sm:px-4 sm:text-sm md:flex-none" :class="view === 'admin' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'" @click="view = 'admin'">Admin Dashboard</button>
         </div>
       </div>
 
-      <section v-if="view === 'public'" class="mx-auto max-w-5xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
-        <div class="mb-6 rounded-2xl bg-slate-900 px-5 py-4 text-white">
+      <section v-if="view === 'public'" class="mx-auto w-full max-w-5xl rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:p-8">
+        <div class="mb-6 rounded-2xl bg-slate-900 px-4 py-4 text-white sm:px-5">
           <h2 class="text-lg font-semibold">Submit a document for screening</h2>
           <div>
             <p class="text-justify">
@@ -491,7 +487,7 @@ watch(turnstileHost, () => {
           </div> 
         </div>
 
-        <div class="mb-6 grid gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 md:grid-cols-3">
+        <div class="mb-6 grid gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 sm:grid-cols-3">
           <div>
             <p class="font-semibold">Accepted</p>
             <p>All applicable required items are declared present.</p>
@@ -536,7 +532,7 @@ watch(turnstileHost, () => {
             </div>
           </div>
 
-          <div class="grid gap-5 md:grid-cols-3">
+          <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">Office / agency</label>
               <input v-model="form.agency" type="text" placeholder="Enter office or agency" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900" />
@@ -548,7 +544,7 @@ watch(turnstileHost, () => {
                 <option v-for="option in INSTITUTION_TYPES" :key="option" :value="option">{{ option }}</option>
               </select>
             </div>
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 sm:col-span-2 lg:col-span-1">
               <p class="font-semibold text-slate-900">Checklist progress</p>
               <p class="mt-1">{{ checkedCount }} item<span v-if="checkedCount !== 1">s</span> declared</p>
             </div>
@@ -564,13 +560,13 @@ watch(turnstileHost, () => {
             <textarea v-model="form.othersDescription" rows="3" placeholder="Describe the request and why it falls under Others" class="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-slate-900"></textarea>
           </div>
 
-          <div v-if="activeRule" class="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-5">
-            <div class="mb-4 flex items-start justify-between gap-4">
-              <div>
+          <div v-if="activeRule" class="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4 sm:rounded-[1.75rem] sm:p-5">
+            <div class="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
+              <div class="min-w-0">
                 <h3 class="text-lg font-semibold text-slate-900">Documentary checklist</h3>
                 <p class="mt-1 text-sm text-slate-600">Required items matter for intake status. Optional items can be declared when available.</p>
               </div>
-              <div class="rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm">{{ activeRule.label }}</div>
+              <div class="self-start rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm sm:self-auto">{{ activeRule.label }}</div>
             </div>
 
             <div class="space-y-3">
@@ -629,8 +625,8 @@ watch(turnstileHost, () => {
         </form>
       </section>
 
-      <section v-else class="mx-auto max-w-7xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-xl shadow-slate-200/60 sm:p-8">
-        <div v-if="!isAdmin" class="mx-auto max-w-xl rounded-[1.75rem] border border-slate-200 bg-slate-50 p-6">
+      <section v-else class="mx-auto w-full max-w-[1400px] rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:p-8">
+        <div v-if="!isAdmin" class="mx-auto max-w-xl rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 sm:rounded-[1.75rem] sm:p-6">
           <h2 class="text-2xl font-bold text-slate-900">Admin dashboard access</h2>
           <p class="mt-2 text-sm text-slate-600">Use the admin key to view intake logs, export CSV, and generate print-ready PDFs.</p>
           <div class="mt-5 space-y-4">
@@ -645,21 +641,21 @@ watch(turnstileHost, () => {
         </div>
 
         <div v-else>
-          <div class="mb-6 flex flex-col gap-4 rounded-[1.75rem] bg-slate-900 p-5 text-white lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h2 class="text-2xl font-bold">Admin Dashboard</h2>
+          <div class="mb-6 flex flex-col gap-4 rounded-[1.5rem] bg-slate-900 p-4 text-white sm:rounded-[1.75rem] sm:p-5 lg:flex-row lg:items-end lg:justify-between">
+            <div class="min-w-0">
+              <h2 class="text-xl font-bold sm:text-2xl">Admin Dashboard</h2>
               <p class="mt-2 text-sm text-slate-300">Search intake logs, export the register, and generate a print-ready PDF receiving copy.</p>
               <p v-if="lastLoadedAt" class="mt-2 text-xs text-slate-400">Last loaded: {{ lastLoadedAt }}</p>
             </div>
-            <div class="flex flex-wrap gap-3">
-              <button class="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20" @click="loadResponses">Refresh</button>
-              <button class="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20" @click="exportCsvClient">Quick CSV</button>
-              <button class="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-100" @click="exportCsvServer">Server CSV</button>
-              <button class="rounded-2xl border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10" @click="logoutAdmin">Logout</button>
+            <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
+              <button class="rounded-2xl bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20 sm:px-4 sm:text-sm" @click="loadResponses">Refresh</button>
+              <button class="rounded-2xl bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20 sm:px-4 sm:text-sm" @click="exportCsvClient">Quick CSV</button>
+              <button class="rounded-2xl bg-white px-3 py-2 text-xs font-semibold text-slate-900 transition hover:bg-slate-100 sm:px-4 sm:text-sm" @click="exportCsvServer">Server CSV</button>
+              <button class="rounded-2xl border border-white/20 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10 sm:px-4 sm:text-sm" @click="logoutAdmin">Logout</button>
             </div>
           </div>
 
-          <div class="mb-6 grid gap-4 md:grid-cols-5">
+          <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
             <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p class="text-xs uppercase tracking-wide text-slate-500">Total</p><p class="mt-2 text-3xl font-bold text-slate-900">{{ stats.total }}</p></div>
             <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><p class="text-xs uppercase tracking-wide text-emerald-700">Accepted</p><p class="mt-2 text-3xl font-bold text-emerald-900">{{ stats.accepted }}</p></div>
             <div class="rounded-2xl border border-rose-200 bg-rose-50 p-4"><p class="text-xs uppercase tracking-wide text-rose-700">Rejected intake</p><p class="mt-2 text-3xl font-bold text-rose-900">{{ stats.rejected }}</p></div>
