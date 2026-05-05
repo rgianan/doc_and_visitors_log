@@ -596,8 +596,24 @@ function generatePrintDoc_(record) {
 
 function replaceToken_(body, token, value) {
   var safeValue = String(value == null ? '' : value);
-  var patterns = ['{{' + token + '}}', '<<' + token + '>>', '[' + token + ']'];
-  for (var i = 0; i < patterns.length; i++) body.replaceText(escapeRegex_(patterns[i]), safeValue);
+  var variants = tokenVariants_(token);
+  for (var v = 0; v < variants.length; v++) {
+    var t = variants[v];
+    var patterns = ['{{' + t + '}}', '<<' + t + '>>', '[' + t + ']'];
+    for (var i = 0; i < patterns.length; i++) body.replaceText(escapeRegex_(patterns[i]), safeValue);
+  }
+}
+
+function tokenVariants_(token) {
+  var s = String(token);
+  var withSpace = s.replace(/_/g, ' ');
+  var withUnderscore = s.replace(/ /g, '_');
+  var seen = {};
+  var out = [];
+  [s, withSpace, withUnderscore].forEach(function (v) {
+    if (!seen[v]) { seen[v] = true; out.push(v); }
+  });
+  return out;
 }
 
 function escapeRegex_(s) {
@@ -641,11 +657,14 @@ function verifyTurnstile_(token) {
       muteHttpExceptions: true
     });
   } catch (err) {
-    throw new Error('CAPTCHA verification could not be completed.');
+    throw new Error('CAPTCHA verification could not be completed: ' + (err && err.message ? err.message : 'fetch error'));
   }
   var body = {};
   try { body = JSON.parse(resp.getContentText() || '{}'); } catch (err) {}
-  if (!body.success) throw new Error('CAPTCHA verification failed.');
+  if (!body.success) {
+    var codes = (body['error-codes'] || []).join(', ');
+    throw new Error('CAPTCHA verification failed' + (codes ? ': ' + codes : '.'));
+  }
 }
 
 function handleUpdateDeficiency_(payload) {

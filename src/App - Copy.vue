@@ -460,7 +460,7 @@ watch(turnstileHost, () => {
 
 <template>
   <main class="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 px-3 py-6 sm:px-6 sm:py-10">
-    <div class="mx-auto w-full max-w-[1400px] min-[1920px]:max-w-none">
+    <div class="mx-auto w-full max-w-[1400px]">
       <div class="mb-6 flex flex-col gap-4 rounded-[1.5rem] border border-slate-200 bg-white/90 p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:mb-8 md:flex-row md:items-end md:justify-between">
         <div class="min-w-0">
           <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 sm:text-sm">Commission on Higher Education</p>
@@ -475,12 +475,19 @@ watch(turnstileHost, () => {
         </div>
       </div>
 
-      <section v-if="view === 'public'" class="mx-auto w-full max-w-5xl rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:p-8 min-[1920px]:max-w-[1600px]">
+      <section v-if="view === 'public'" class="mx-auto w-full max-w-5xl rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:p-8">
         <div class="mb-6 rounded-2xl bg-slate-900 px-4 py-4 text-white sm:px-5">
           <h2 class="text-lg font-semibold">Submit a document for screening</h2>
+          <div>
+            <p class="text-justify">
+                By submitting this form, you acknowledge that you have read and understood the privacy policy and consent to the
+                collection, processing, and storage of your personal data by the entity, in compliance with the Data Privacy Act of 2012
+                (Republic Act No. 10173). Your data will be used specifically for the stated purposes and protected according to these laws.
+            </p>
+          </div>
           <div class="mt-4">
             <p class="text-justify">
-                Only <strong>required</strong> documentary submissions shall be considered in determining whether a request is accepted or rejected. <strong>Optional</strong> documents may still be assessed when applicable, but they shall not trigger automatic rejection.
+                Only the required documents affect whether a request is accepted or rejected. Optional documents may still be checked when necessary, but they do not cause an automatic rejection.
             </p>
           </div> 
         </div>
@@ -562,7 +569,7 @@ watch(turnstileHost, () => {
             <div class="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
               <div class="min-w-0">
                 <h3 class="text-lg font-semibold text-slate-900">Documentary checklist</h3>
-                <p class="mt-1 text-sm text-slate-600">Required items matter for screening status. Optional items can be declared when available.</p>
+                <p class="mt-1 text-sm text-slate-600">Required items matter for intake status. Optional items can be declared when available.</p>
               </div>
               <div class="self-start rounded-2xl bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm sm:self-auto">{{ activeRule.label }}</div>
             </div>
@@ -603,6 +610,7 @@ watch(turnstileHost, () => {
           <div v-if="turnstileEnabled" class="rounded-2xl border border-slate-200 bg-white p-4">
             <p class="mb-3 text-sm font-medium text-slate-700">CAPTCHA verification</p>
             <div ref="turnstileHost" class="min-h-16"></div>
+            <p class="mt-2 text-xs text-slate-500">Required only when a Turnstile site key is configured.</p>
           </div>
 
           <div v-if="submitError" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ submitError }}</div>
@@ -612,19 +620,9 @@ watch(turnstileHost, () => {
           </div>
 
           <div class="flex flex-col gap-3 pt-2 sm:flex-row">
-            <div class="group relative">
-              <button type="submit" :disabled="submitting" aria-describedby="submit-privacy-tooltip" class="inline-flex w-full items-center justify-center rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">
-                {{ submitting ? 'Submitting…' : 'Submit for document screening' }}
-              </button>
-              <div
-                id="submit-privacy-tooltip"
-                role="tooltip"
-                class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-3 w-72 -translate-x-1/2 rounded-xl bg-slate-900 px-4 py-3 text-xs leading-relaxed text-white opacity-0 shadow-xl ring-1 ring-black/5 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:w-96"
-              >
-                By submitting this form, you acknowledge that you have read and understood the privacy policy and consent to the collection, processing, and storage of your personal data by the entity, in compliance with the Data Privacy Act of 2012 (Republic Act No. 10173). Your data will be used specifically for the stated purposes and protected according to these laws.
-                <span class="absolute left-1/2 top-full -translate-x-1/2 border-8 border-transparent border-t-slate-900"></span>
-              </div>
-            </div>
+            <button type="submit" :disabled="submitting" class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60">
+              {{ submitting ? 'Submitting…' : 'Submit for document screening' }}
+            </button>
             <button type="button" class="inline-flex items-center justify-center rounded-2xl border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900" @click="resetForm">
               Reset form
             </button>
@@ -632,10 +630,10 @@ watch(turnstileHost, () => {
         </form>
       </section>
 
-      <section v-else class="mx-auto w-full max-w-[1400px] rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:p-8 min-[1920px]:max-w-none">
+      <section v-else class="mx-auto w-full max-w-[1400px] rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-[2rem] sm:p-6 md:p-8">
         <div v-if="!isAdmin" class="mx-auto max-w-xl rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5 sm:rounded-[1.75rem] sm:p-6">
           <h2 class="text-2xl font-bold text-slate-900">Admin dashboard access</h2>
-          <p class="mt-2 text-sm text-slate-600">Use the admin key to view document screening logs, export CSV, and generate print-ready PDFs.</p>
+          <p class="mt-2 text-sm text-slate-600">Use the admin key to view intake logs, export CSV, and generate print-ready PDFs.</p>
           <div class="mt-5 space-y-4">
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">Admin key</label>
@@ -657,7 +655,7 @@ watch(turnstileHost, () => {
           <div class="mb-6 flex flex-col gap-4 rounded-[1.5rem] bg-slate-900 p-4 text-white sm:rounded-[1.75rem] sm:p-5 lg:flex-row lg:items-end lg:justify-between">
             <div class="min-w-0">
               <h2 class="text-xl font-bold sm:text-2xl">Admin Dashboard</h2>
-              <p class="mt-2 text-sm text-slate-300">Search screening logs, export the register, and generate a print-ready PDF receiving copy.</p>
+              <p class="mt-2 text-sm text-slate-300">Search intake logs, export the register, and generate a print-ready PDF receiving copy.</p>
               <p v-if="lastLoadedAt" class="mt-2 text-xs text-slate-400">Last loaded: {{ lastLoadedAt }}</p>
             </div>
             <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
